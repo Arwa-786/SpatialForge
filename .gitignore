@@ -1,0 +1,1 @@
+.pio/ .vscode/ *.DS_Store ios-app/**/xcuserdata/ ios-app/**/DerivedData/ ios-app/**/*.xcworkspace/xcuserdata/
