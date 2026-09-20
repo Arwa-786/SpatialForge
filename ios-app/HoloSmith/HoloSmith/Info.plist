@@ -9,5 +9,11 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>HoloSmith connects to the SpatialPuck ESP32 over your local Wi-Fi network to stream live sensor telemetry.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>HoloSmith uses the front camera to recognize hand gestures (point, pinch, fist) for controlling the 3D model.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>HoloSmith listens for spoken commands (like "reset" or "what color is this") since both hands are busy with the puck and gestures.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>HoloSmith uses on-device speech recognition to understand spoken commands for hands-free control.</string>
 </dict>
 </plist>

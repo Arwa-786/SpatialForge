@@ -15,8 +15,21 @@ import UIKit
 final class SpatialScene {
     let scene = SCNScene()
     let objectNode = SCNNode()
- 
+
     private var baseScale: Float = 1.0
+
+    // Left-hand gesture state, layered on top of the puck's telemetry:
+    // - gestureYawDegrees: the "point" gesture drives Y-axis rotation, an
+    //   axis the puck never touches (it only drives pitch/roll), so this
+    //   never fights with it.
+    // - gestureScaleOverride: while "pinch" is active this temporarily
+    //   replaces the puck's distance-driven scale; nil means "puck controls
+    //   scale as normal."
+    // - isFrozen: toggled by "fist" — while true, update() is a no-op, so
+    //   whatever pose/color was showing stays put.
+    var gestureYawDegrees: Double = 0
+    var gestureScaleOverride: Float?
+    var isFrozen = false
  
     init() {
         objectNode.geometry = SCNTorus(ringRadius: 1.0, pipeRadius: 0.35)
@@ -91,7 +104,7 @@ final class SpatialScene {
                 // Set scale and center pivot
                 let scaleFactor = maxDimension > 0 ? Float(1.8 / Double(maxDimension)) : 1.0
                 wrapperNode.scale = SCNVector3(scaleFactor, scaleFactor, scaleFactor)
-                
+
                 wrapperNode.pivot = SCNMatrix4MakeTranslation(
                     minVec.x + size.x / 2.0,
                     minVec.y + size.y / 2.0,
@@ -115,18 +128,25 @@ final class SpatialScene {
     }
  
     func update(pitchDeg: Double, rollDeg: Double, distCM: Double, color: UIColor) {
+        guard !isFrozen else { return }
+
         objectNode.eulerAngles = SCNVector3(
             Float(pitchDeg * .pi / 180.0),
-            0,
+            Float(gestureYawDegrees * .pi / 180.0),
             Float(rollDeg * .pi / 180.0)
         )
- 
-        let clamped = max(3.0, min(20.0, distCM))
-        let t = (clamped - 3.0) / (20.0 - 3.0)
-        let distScale = Float(0.4 + t * (2.5 - 0.4))
+
+        let distScale: Float
+        if let override = gestureScaleOverride {
+            distScale = override
+        } else {
+            let clamped = max(3.0, min(20.0, distCM))
+            let t = (clamped - 3.0) / (20.0 - 3.0)
+            distScale = Float(0.4 + t * (2.5 - 0.4))
+        }
         let finalScale = baseScale * distScale
         objectNode.scale = SCNVector3(finalScale, finalScale, finalScale)
- 
+
         applyColor(color, to: objectNode)
     }
  

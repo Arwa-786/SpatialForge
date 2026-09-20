@@ -19,7 +19,16 @@ struct ContentView: View {
     @State private var loadedModelName: String? = nil
     @State private var importFailed = false
     @State private var showSettings = false
- 
+    @StateObject private var handTracking = HandTrackingManager()
+    @State private var lastFistToggle = Date.distantPast
+    @StateObject private var voice = VoiceCommandManager()
+    // The ESP32 streams a color frame ~45x/sec regardless of what's set
+    // here, so a spoken color needs its own slot instead of trying to write
+    // into client.color directly — otherwise the very next sensor frame
+    // would clobber it within milliseconds. nil means "use the live sensor
+    // color," which "use sensor color" (spoken) restores.
+    @State private var colorOverride: Color?
+
     var body: some View {
         ZStack(alignment: .top) {
             SceneView(
@@ -31,21 +40,34 @@ struct ContentView: View {
             .onChange(of: client.roll) { _ in refreshScene() }
             .onChange(of: client.dist) { _ in refreshScene() }
             .onChange(of: client.color) { _ in refreshScene() }
- 
+            .onChange(of: handTracking.activeGesture) { _ in applyGesture() }
+            .onChange(of: handTracking.pointerX) { _ in applyGesture() }
+            .onChange(of: handTracking.pinchDistance) { _ in applyGesture() }
+
             topBar
- 
+
             VStack {
                 Spacer()
                 HStack {
                     ColorWheelView(rawR: client.rawR, rawG: client.rawG, rawB: client.rawB)
                     Spacer()
+                    if handTracking.isActive {
+                        HandTrackingOverlayView(handTracking: handTracking)
+                    }
                 }
             }
-            .padding(.leading, 16)
+            .padding(.horizontal, 16)
             .padding(.bottom, 20)
         }
-        .onAppear { client.connect() }
-        .onDisappear { client.disconnect() }
+        .onAppear {
+            client.connect()
+            registerVoiceCommands()
+        }
+        .onDisappear {
+            client.disconnect()
+            handTracking.stop()
+            voice.stop()
+        }
         .fileImporter(
             isPresented: $showImporter,
             allowedContentTypes: [UTType(filenameExtension: "usdz") ?? .item]
@@ -69,6 +91,28 @@ struct ContentView: View {
             statusBar
             Spacer()
             HStack(spacing: 8) {
+                Button {
+                    voice.isListening ? voice.stop() : voice.start()
+                } label: {
+                    Image(systemName: voice.isListening ? "mic.fill" : "mic")
+                        .font(.caption)
+                        .padding(8)
+                        .background(voice.isListening ? Color.accentColor.opacity(0.8) : Color.black.opacity(0.6))
+                        .foregroundColor(.white)
+                        .clipShape(Circle())
+                }
+
+                Button {
+                    handTracking.isActive ? handTracking.stop() : handTracking.start()
+                } label: {
+                    Image(systemName: handTracking.isActive ? "hand.raised.fill" : "hand.raised")
+                        .font(.caption)
+                        .padding(8)
+                        .background(handTracking.isActive ? Color.accentColor.opacity(0.8) : Color.black.opacity(0.6))
+                        .foregroundColor(.white)
+                        .clipShape(Circle())
+                }
+
                 Button {
                     showSettings = true
                 } label: {
@@ -137,8 +181,72 @@ struct ContentView: View {
             pitchDeg: client.pitch,
             rollDeg: client.roll,
             distCM: client.dist,
-            color: UIColor(client.color)
+            color: UIColor(colorOverride ?? client.color)
         )
+    }
+
+    // Wires the voice manager's callbacks to real app state. Registered on
+    // every appear, which is harmless — re-assigning the same closures is a
+    // no-op in effect.
+    private func registerVoiceCommands() {
+        voice.onReset = {
+            spatial.resetToDefaultTorus()
+            loadedModelName = nil
+            colorOverride = nil
+        }
+        voice.onImportModel = {
+            showImporter = true
+        }
+        voice.onCalibrateWhite = {
+            client.send("calibrate_white")
+        }
+        voice.onCalibrateBlack = {
+            client.send("calibrate_black")
+        }
+        voice.onReadColor = {
+            let name = nearestColorName(r: client.rawR, g: client.rawG, b: client.rawB)
+            voice.speak(name)
+        }
+        voice.onSetColor = { name in
+            guard let entry = namedColors.first(where: { $0.name == name }) else { return }
+            colorOverride = Color(red: entry.r / 255, green: entry.g / 255, blue: entry.b / 255)
+            refreshScene()
+        }
+        voice.onClearColorOverride = {
+            colorOverride = nil
+            refreshScene()
+        }
+    }
+
+    // Left-hand gesture -> scene state. Point drives yaw (an axis the puck
+    // never touches), pinch temporarily overrides scale, fist toggles freeze.
+    // Releasing point/pinch (gesture goes back to .none) hands scale back to
+    // the puck; yaw is left wherever it was last pointed, not reset.
+    private func applyGesture() {
+        switch handTracking.activeGesture {
+        case .point:
+            let yawDeg = Double(handTracking.pointerX - 0.5) * 2 * 60.0 // -60...60 degrees
+            spatial.gestureYawDegrees = yawDeg
+            spatial.gestureScaleOverride = nil
+
+        case .pinch:
+            let minDistance: CGFloat = 0.02
+            let maxDistance: CGFloat = 0.25
+            let t = Float(min(max((handTracking.pinchDistance - minDistance) / (maxDistance - minDistance), 0), 1))
+            spatial.gestureScaleOverride = 0.4 + t * (2.5 - 0.4) // same range the puck's distance drives
+
+        case .fist:
+            let now = Date()
+            if now.timeIntervalSince(lastFistToggle) > 0.8 { // cooldown so classifier jitter can't double-toggle
+                spatial.isFrozen.toggle()
+                lastFistToggle = now
+            }
+            spatial.gestureScaleOverride = nil
+
+        case .none:
+            spatial.gestureScaleOverride = nil
+        }
+        refreshScene()
     }
 }
  
