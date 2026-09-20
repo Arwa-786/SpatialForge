@@ -72,6 +72,7 @@ struct HandTrackingOverlayView: View {
         case .point: return "Point"
         case .pinch: return "Pinch"
         case .fist: return "Fist"
+        case .openPalm: return "Open Palm"
         }
     }
 }

@@ -24,12 +24,26 @@ final class TelemetryClient: NSObject, ObservableObject, URLSessionWebSocketDele
     @Published var pitch: Double = 0
     @Published var roll: Double = 0
     @Published var dist: Double = 10
+    // Live, instantly-updating sensor reading — the color wheel's dot and
+    // swatch track this in real time, so aiming the sensor still gives
+    // immediate visual feedback.
     @Published var color: Color = .gray
     @Published var rawR: Int = 128
     @Published var rawG: Int = 128
     @Published var rawB: Int = 128
+    // What the 3D model is actually tinted — only changes once a real
+    // (non-white) color has been held steady for commitHoldDuration. White
+    // is excluded entirely from this, not just untracked: our own readings
+    // show it's what the sensor reports with nothing deliberately held
+    // against it, so treating it as a valid target would let "nothing
+    // there" silently erase an already-captured color.
+    @Published var committedColor: Color = .gray
     @Published var isConnected: Bool = false
-    
+
+    private var candidateColorName: String?
+    private var candidateStartTime: Date?
+    private let commitHoldDuration: TimeInterval = 3.0
+
     private var smoothR: Double = 128
     private var smoothG: Double = 128
     private var smoothB: Double = 128
@@ -107,6 +121,33 @@ final class TelemetryClient: NSObject, ObservableObject, URLSessionWebSocketDele
             self.rawG = Int(self.smoothG)
             self.rawB = Int(self.smoothB)
             self.color = Color(red: self.smoothR / 255, green: self.smoothG / 255, blue: self.smoothB / 255)
+
+            self.updateCommittedColor()
+        }
+    }
+
+    // Uses the *named* color (e.g. "Red") as the stability signal instead
+    // of raw numeric tolerance — small sensor jitter almost never changes
+    // which named color a reading is closest to, even though the raw
+    // numbers themselves wobble constantly, which is exactly what made an
+    // earlier, numeric-tolerance version of this idea get stuck on gray.
+    private func updateCommittedColor() {
+        let liveName = nearestColorName(r: rawR, g: rawG, b: rawB)
+
+        // White is skipped entirely, not just excluded from committing — a
+        // transient white reading (sensor angle wobble, brief loss of
+        // contact) doesn't reset progress toward committing whatever real
+        // color came before and after it.
+        guard liveName != "White" else { return }
+
+        let now = Date()
+        if liveName == candidateColorName {
+            if let start = candidateStartTime, now.timeIntervalSince(start) >= commitHoldDuration {
+                committedColor = color
+            }
+        } else {
+            candidateColorName = liveName
+            candidateStartTime = now
         }
     }
  

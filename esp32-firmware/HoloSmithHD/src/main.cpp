@@ -151,9 +151,38 @@ void updateDistance() {
 }
 
 // ---------- IMU ----------
+unsigned long lastIMUDebugMillis = 0;
+const unsigned long IMU_DEBUG_INTERVAL_MS = 300; // throttled — this runs every loop() otherwise
+
 void updateIMU() {
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
+
+  // Raw accel should read ~9.8 on whichever axis currently points against
+  // gravity when the puck is held still, and visibly shift as you tilt it.
+  // All exactly 0 (or unchanging no matter how you move it) means mpu.begin()
+  // likely failed silently at boot — check for "MPU6050 not found" earlier
+  // in this same Serial log.
+  unsigned long nowMs = millis();
+  if (nowMs - lastIMUDebugMillis >= IMU_DEBUG_INTERVAL_MS) {
+    lastIMUDebugMillis = nowMs;
+    Serial.print("IMU accel(m/s^2) x:");
+    Serial.print(a.acceleration.x);
+    Serial.print(" y:");
+    Serial.print(a.acceleration.y);
+    Serial.print(" z:");
+    Serial.print(a.acceleration.z);
+    Serial.print(" | gyro(rad/s) x:");
+    Serial.print(g.gyro.x);
+    Serial.print(" y:");
+    Serial.print(g.gyro.y);
+    Serial.print(" z:");
+    Serial.print(g.gyro.z);
+    Serial.print(" | pitch:");
+    Serial.print(pitch);
+    Serial.print(" roll:");
+    Serial.println(roll);
+  }
 
   unsigned long now = micros();
   float dt = (lastIMUMicros == 0) ? 0.01f : (now - lastIMUMicros) / 1000000.0f;

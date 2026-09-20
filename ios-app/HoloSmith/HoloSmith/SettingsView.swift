@@ -11,7 +11,14 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var client: TelemetryClient
+    var onLoadDemoModel: () -> Void
+    var onLoadSegmentedDemo: () -> Void
     @Environment(\.dismiss) private var dismiss
+
+    // Same key SpatialForgeApp's own @AppStorage reads — writing to it here
+    // updates the same persisted value, so the app-level onboarding/home
+    // switch reacts immediately without needing a relaunch.
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = true
 
     @State private var calibrationStatus: String?
 
@@ -57,12 +64,36 @@ struct SettingsView: View {
                     Text(calibrationStatus ?? "Hold a bright white surface against the puck's sensor, then tap Calibrate White. Repeat with a black surface for Calibrate Black.")
                 }
 
+                Section {
+                    Button {
+                        onLoadDemoModel()
+                        dismiss()
+                    } label: {
+                        Label("Load Heart (Single Mesh)", systemImage: "cube")
+                    }
+
+                    Button {
+                        onLoadSegmentedDemo()
+                        dismiss()
+                    } label: {
+                        Label("Load Heart (6 Parts)", systemImage: "square.stack.3d.up")
+                    }
+                } header: {
+                    Text("Demo Models")
+                } footer: {
+                    Text("The 6-part version is the one that supports explode/collapse and selecting individual parts — say \"Friday explode\" or open your palm once it's loaded.")
+                }
+
                 Section("About") {
                     LabeledContent("App", value: "HoloSmith")
                     LabeledContent(
                         "Version",
                         value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
                     )
+                    Button("Replay Onboarding") {
+                        hasCompletedOnboarding = false
+                        dismiss()
+                    }
                 }
             }
             .navigationTitle("Settings")

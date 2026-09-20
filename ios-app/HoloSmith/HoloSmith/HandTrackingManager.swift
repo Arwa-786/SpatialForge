@@ -19,6 +19,7 @@ enum HandGestureKind: Equatable {
     case point
     case pinch
     case fist
+    case openPalm
 }
 
 final class HandTrackingManager: NSObject, ObservableObject {
@@ -151,6 +152,8 @@ final class HandTrackingManager: NSObject, ObservableObject {
             publish(kind: .point, tipX: indexTip.x, tipY: indexTip.y, pinch: pinchDistance, overlay: overlay)
         } else if indexCurled && middleCurled && ringCurled && littleCurled {
             publish(kind: .fist, tipX: indexTip.x, tipY: indexTip.y, pinch: pinchDistance, overlay: overlay)
+        } else if !indexCurled && !middleCurled && !ringCurled && !littleCurled {
+            publish(kind: .openPalm, tipX: indexTip.x, tipY: indexTip.y, pinch: pinchDistance, overlay: overlay)
         } else {
             publish(kind: .none, tipX: indexTip.x, tipY: indexTip.y, pinch: pinchDistance, overlay: overlay)
         }
@@ -174,7 +177,10 @@ final class HandTrackingManager: NSObject, ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             if confirmed { self.activeGesture = kind }
-            if kind == .point || kind == .pinch {
+            // openPalm included so ContentView can track hand movement while
+            // it's held open, for dragging the whole assembly — see
+            // applyGesture()'s openPalm case.
+            if kind == .point || kind == .pinch || kind == .openPalm {
                 self.pointerX = tipX
                 self.pointerY = tipY
             }
