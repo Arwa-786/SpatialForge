@@ -18,6 +18,7 @@ struct ContentView: View {
     @State private var showImporter = false
     @State private var loadedModelName: String? = nil
     @State private var importFailed = false
+    @State private var showSettings = false
  
     var body: some View {
         ZStack(alignment: .top) {
@@ -58,6 +59,9 @@ struct ContentView: View {
                 importFailed = true
             }
         }
+        .sheet(isPresented: $showSettings) {
+            SettingsView(client: client)
+        }
     }
  
     private var topBar: some View {
@@ -65,6 +69,17 @@ struct ContentView: View {
             statusBar
             Spacer()
             HStack(spacing: 8) {
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "gearshape.fill")
+                        .font(.caption)
+                        .padding(8)
+                        .background(.black.opacity(0.6))
+                        .foregroundColor(.white)
+                        .clipShape(Circle())
+                }
+
                 Button {
                     showImporter = true
                 } label: {

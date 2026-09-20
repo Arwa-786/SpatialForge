@@ -101,6 +101,13 @@ int calMaxR = RAW_MAX, calMaxG = RAW_MAX, calMaxB = RAW_MAX;
 unsigned long lastStreamMillis = 0;
 const unsigned long STREAM_INTERVAL_MS = 22; // ~45 Hz
 
+// Forward declarations — these are defined later in the file (they need
+// readColorRaw() etc. above them) but onWebSocketEvent(), defined next,
+// needs to call them when the app sends a calibration command.
+void calibrateWhitePoint();
+void calibrateBlackPoint();
+void resetColorCalibration();
+
 void setupWiFiAP() {
   WiFi.mode(WIFI_AP);
   WiFi.softAP(AP_SSID, AP_PASS);
@@ -113,6 +120,13 @@ void onWebSocketEvent(uint8_t clientNum, WStype_t type, uint8_t* payload, size_t
     Serial.printf("Client %u connected\n", clientNum);
   } else if (type == WStype_DISCONNECTED) {
     Serial.printf("Client %u disconnected\n", clientNum);
+  } else if (type == WStype_TEXT) {
+    // Same calibration commands the Serial Monitor accepts ('w'/'k'/'r'),
+    // now reachable from the app's Settings screen over the WebSocket.
+    String command = String((char*)payload, length);
+    if (command == "calibrate_white") calibrateWhitePoint();
+    else if (command == "calibrate_black") calibrateBlackPoint();
+    else if (command == "reset_calibration") resetColorCalibration();
   }
 }
 

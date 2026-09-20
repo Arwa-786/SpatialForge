@@ -54,6 +54,17 @@ final class TelemetryClient: NSObject, ObservableObject, URLSessionWebSocketDele
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         isConnected = false
     }
+
+    // Sends a plain-text command to the ESP32 (e.g. "calibrate_white") — the
+    // firmware's onWebSocketEvent() handles WStype_TEXT frames and routes
+    // these to the matching calibration routine.
+    func send(_ command: String) {
+        webSocketTask?.send(.string(command)) { error in
+            if let error = error {
+                print("WebSocket send error: \(error)")
+            }
+        }
+    }
  
     private func listen() {
         webSocketTask?.receive { [weak self] result in
