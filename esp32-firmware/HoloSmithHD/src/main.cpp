@@ -32,6 +32,7 @@
 #include <Wire.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
+#include <Preferences.h>
 
 // ---------- Pin Assignments (matches your verified wiring) ----------
 #define SDA_PIN 8
@@ -73,11 +74,29 @@ const float DIST_SMOOTH = 0.25f;
 // values need normalizing into a 0-255 range and INVERTING (short=high).
 uint8_t latchedR = 128, latchedG = 128, latchedB = 128;
 const unsigned long PULSE_TIMEOUT_US = 25000;
-// Tune these two after watching real readings on Serial: RAW_MIN should be
-// roughly the shortest pulse you see pointed at something bright white,
-// RAW_MAX roughly the longest pulse before it's basically "nothing there."
+// Fallback bounds, used until real per-channel calibration is captured (or if
+// it's ever reset). Each color channel's sensor response isn't identical, so
+// a single shared min/max is only ever an approximation — see calibration
+// below for the precise, per-channel version.
 const int RAW_MIN = 12;
 const int RAW_MAX = 450;
+// Contact/proximity gate on the Clear channel: pulses longer than this are
+// treated as "nothing in front of the sensor" and the last latched color is
+// kept. Must sit ABOVE the darkest real reading (black, up close, can run
+// close to RAW_MAX) so black isn't mistaken for "far away" — that was the
+// original bug. Default is a conservative guess; watch the "RAW Clear:"
+// Serial print with the sensor on open air vs. on a black surface up close
+// and tighten this value to sit cleanly between the two.
+const unsigned long CONTACT_MAX_PULSE = 3000;
+
+// ---------- Color Sensor Calibration (per-channel, persisted to flash) ----------
+// calMin*: raw pulse width (us) seen for that channel against a bright WHITE
+// reference. calMax*: raw pulse width seen against a dark/BLACK reference.
+// Trigger from the Arduino Serial Monitor: send 'w' while holding a white
+// surface to the sensor, 'k' while holding a black surface, 'r' to reset.
+Preferences colorPrefs;
+int calMinR = RAW_MIN, calMinG = RAW_MIN, calMinB = RAW_MIN;
+int calMaxR = RAW_MAX, calMaxG = RAW_MAX, calMaxB = RAW_MAX;
 
 unsigned long lastStreamMillis = 0;
 const unsigned long STREAM_INTERVAL_MS = 22; // ~45 Hz
@@ -157,24 +176,110 @@ unsigned long readColorRaw(int s2State, int s3State) {
 }
 
 // Converts a raw pulse width into a 0-255 brightness value, INVERTED
-// (short pulse = strong color = high number) and clamped to RAW_MIN/RAW_MAX.
-uint8_t normalizeColor(unsigned long raw) {
+// (short pulse = strong color = high number) and clamped to that channel's
+// own calibrated [channelMin, channelMax] range.
+uint8_t normalizeColor(unsigned long raw, int channelMin, int channelMax) {
   if (raw == 0) return 0; // timed out — treat as "no signal" (dark)
-  long clamped = constrain((long)raw, RAW_MIN, RAW_MAX);
-  long inverted = map(clamped, RAW_MIN, RAW_MAX, 255, 0);
+  if (channelMax <= channelMin) channelMax = channelMin + 1; // guard bad/uncalibrated data
+  long clamped = constrain((long)raw, (long)channelMin, (long)channelMax);
+  long inverted = map(clamped, channelMin, channelMax, 255, 0);
   return (uint8_t)constrain(inverted, 0, 255);
 }
 
-void updateColor() {
-// Read Clear channel first (S2=HIGH, S3=LOW) to verify a surface is in range.
-// NOTE: a black/dark surface reflects little light and produces a LONG pulse
-// here too, just like open air with nothing in front of the sensor — so this
-// can only detect "totally out of range" (a full timeout), not "black".
-// Don't gate on pulse width, or black surfaces get silently rejected forever.
-  unsigned long rawClear = readColorRaw(HIGH, LOW);
+// ---------- Color Calibration ----------
+void loadColorCalibration() {
+  colorPrefs.begin("colorcal", true);
+  calMinR = colorPrefs.getInt("minR", RAW_MIN);
+  calMinG = colorPrefs.getInt("minG", RAW_MIN);
+  calMinB = colorPrefs.getInt("minB", RAW_MIN);
+  calMaxR = colorPrefs.getInt("maxR", RAW_MAX);
+  calMaxG = colorPrefs.getInt("maxG", RAW_MAX);
+  calMaxB = colorPrefs.getInt("maxB", RAW_MAX);
+  colorPrefs.end();
+  Serial.printf("Color calibration loaded — white(R%d G%d B%d) black(R%d G%d B%d)\n",
+    calMinR, calMinG, calMinB, calMaxR, calMaxG, calMaxB);
+}
 
-  // Only skip on a genuine timeout (sensor sees nothing at all): keep previous color
-  if (rawClear == 0) {
+void saveColorCalibration() {
+  colorPrefs.begin("colorcal", false);
+  colorPrefs.putInt("minR", calMinR);
+  colorPrefs.putInt("minG", calMinG);
+  colorPrefs.putInt("minB", calMinB);
+  colorPrefs.putInt("maxR", calMaxR);
+  colorPrefs.putInt("maxG", calMaxG);
+  colorPrefs.putInt("maxB", calMaxB);
+  colorPrefs.end();
+}
+
+// Averages several raw readings per channel so a single noisy pulse doesn't
+// get baked into the calibration.
+void sampleColorRaw(unsigned long &avgR, unsigned long &avgG, unsigned long &avgB) {
+  const int samples = 15;
+  unsigned long sumR = 0, sumG = 0, sumB = 0;
+  int counted = 0;
+
+  for (int i = 0; i < samples; i++) {
+    unsigned long r = readColorRaw(LOW, LOW);
+    unsigned long g = readColorRaw(HIGH, HIGH);
+    unsigned long b = readColorRaw(LOW, HIGH);
+    if (r > 0 && g > 0 && b > 0) {
+      sumR += r; sumG += g; sumB += b;
+      counted++;
+    }
+    delay(20);
+  }
+
+  if (counted == 0) counted = 1; // avoid div-by-zero if every sample timed out
+  avgR = sumR / counted;
+  avgG = sumG / counted;
+  avgB = sumB / counted;
+}
+
+void calibrateWhitePoint() {
+  Serial.println("Calibrating WHITE point — hold a bright white surface against the sensor...");
+  delay(1500);
+  unsigned long r, g, b;
+  sampleColorRaw(r, g, b);
+  calMinR = (int)r; calMinG = (int)g; calMinB = (int)b;
+  saveColorCalibration();
+  Serial.printf("White point set: R%d G%d B%d\n", calMinR, calMinG, calMinB);
+}
+
+void calibrateBlackPoint() {
+  Serial.println("Calibrating BLACK point — hold a dark/black surface against the sensor...");
+  delay(1500);
+  unsigned long r, g, b;
+  sampleColorRaw(r, g, b);
+  calMaxR = (int)r; calMaxG = (int)g; calMaxB = (int)b;
+  saveColorCalibration();
+  Serial.printf("Black point set: R%d G%d B%d\n", calMaxR, calMaxG, calMaxB);
+}
+
+void resetColorCalibration() {
+  calMinR = calMinG = calMinB = RAW_MIN;
+  calMaxR = calMaxG = calMaxB = RAW_MAX;
+  saveColorCalibration();
+  Serial.println("Color calibration reset to defaults.");
+}
+
+void handleSerialCommands() {
+  if (!Serial.available()) return;
+  switch (Serial.read()) {
+    case 'w': case 'W': calibrateWhitePoint(); break;
+    case 'k': case 'K': calibrateBlackPoint(); break;
+    case 'r': case 'R': resetColorCalibration(); break;
+  }
+}
+
+void updateColor() {
+// Read Clear channel first (S2=HIGH, S3=LOW) as a contact/proximity check —
+// see CONTACT_MAX_PULSE above for why the cutoff sits above the color range.
+  unsigned long rawClear = readColorRaw(HIGH, LOW);
+  Serial.print("RAW Clear:");
+  Serial.println(rawClear);
+
+  // Nothing close enough to trust: keep the last latched color
+  if (rawClear == 0 || rawClear > CONTACT_MAX_PULSE) {
     return;
   }
 
@@ -189,9 +294,9 @@ void updateColor() {
   Serial.print(" B:");
   Serial.println(rawBlue);
 
-  latchedR = normalizeColor(rawRed);
-  latchedG = normalizeColor(rawGreen);
-  latchedB = normalizeColor(rawBlue);
+  latchedR = normalizeColor(rawRed, calMinR, calMaxR);
+  latchedG = normalizeColor(rawGreen, calMinG, calMaxG);
+  latchedB = normalizeColor(rawBlue, calMinB, calMaxB);
 }
 
 void broadcastTelemetry() {
@@ -229,16 +334,20 @@ void setup() {
     Serial.println("MPU6050 ready.");
   }
 
+  loadColorCalibration();
+
   setupWiFiAP();
   webSocket.begin();
   webSocket.onEvent(onWebSocketEvent);
 
   Serial.println("=== SpatialForge firmware ready, streaming over WebSocket ===");
+  Serial.println("Color calibration: send 'w' (white surface), 'k' (black surface), 'r' (reset) over Serial.");
   lastIMUMicros = 0;
 }
 
 void loop() {
   webSocket.loop();
+  handleSerialCommands();
 
   updateIMU();
   updateDistance();
