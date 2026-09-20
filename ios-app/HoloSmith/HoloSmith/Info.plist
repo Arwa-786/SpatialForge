@@ -7,5 +7,7 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>HoloSmith connects to the SpatialPuck ESP32 over your local Wi-Fi network to stream live sensor telemetry.</string>
 </dict>
 </plist>

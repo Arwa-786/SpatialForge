@@ -38,6 +38,8 @@
 #define SCL_PIN 9
 #define TRIG_PIN 4
 #define ECHO_PIN 5
+#define S0_PIN 6
+#define S1_PIN 7
 #define S2_PIN 10
 #define S3_PIN 11
 #define OUT_PIN 12
@@ -76,7 +78,6 @@ const unsigned long PULSE_TIMEOUT_US = 25000;
 // RAW_MAX roughly the longest pulse before it's basically "nothing there."
 const int RAW_MIN = 12;
 const int RAW_MAX = 450;
-const unsigned long CONTACT_MAX_PULSE = 200;
 
 unsigned long lastStreamMillis = 0;
 const unsigned long STREAM_INTERVAL_MS = 22; // ~45 Hz
@@ -165,11 +166,15 @@ uint8_t normalizeColor(unsigned long raw) {
 }
 
 void updateColor() {
-// Read Clear channel first (S2=HIGH, S3=LOW) to verify a surface is touching
+// Read Clear channel first (S2=HIGH, S3=LOW) to verify a surface is in range.
+// NOTE: a black/dark surface reflects little light and produces a LONG pulse
+// here too, just like open air with nothing in front of the sensor — so this
+// can only detect "totally out of range" (a full timeout), not "black".
+// Don't gate on pulse width, or black surfaces get silently rejected forever.
   unsigned long rawClear = readColorRaw(HIGH, LOW);
 
-  // If sensor is in open air, timed out, or no surface is pressed close: keep previous color
-  if (rawClear == 0 || rawClear > CONTACT_MAX_PULSE) {
+  // Only skip on a genuine timeout (sensor sees nothing at all): keep previous color
+  if (rawClear == 0) {
     return;
   }
 
@@ -203,9 +208,15 @@ void setup() {
 
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
+  pinMode(S0_PIN, OUTPUT);
+  pinMode(S1_PIN, OUTPUT);
   pinMode(S2_PIN, OUTPUT);
   pinMode(S3_PIN, OUTPUT);
   pinMode(OUT_PIN, INPUT);
+
+  // Set TCS3200 to 20% Frequency Scaling (S0 = HIGH, S1 = LOW)
+  digitalWrite(S0_PIN, HIGH);
+  digitalWrite(S1_PIN, LOW);
 
   Wire.begin(SDA_PIN, SCL_PIN);
 

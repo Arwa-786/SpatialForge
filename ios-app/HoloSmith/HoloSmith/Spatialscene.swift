@@ -42,28 +42,69 @@ final class SpatialScene {
         scene.rootNode.addChildNode(ambient)
     }
  
-    @discardableResult
     func loadModel(from url: URL) -> Bool {
-        let didStartAccess = url.startAccessingSecurityScopedResource()
-        defer { if didStartAccess { url.stopAccessingSecurityScopedResource() } }
- 
-        guard let imported = try? SCNScene(url: url, options: [.checkConsistency: true]) else {
+        let didStartAccessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        
+        do {
+            let scene = try SCNScene(url: url, options: [.checkConsistency: true])
+            
+            // 1. Remove all previous nodes inside objectNode
+            objectNode.childNodes.forEach { $0.removeFromParentNode() }
+
+            // 2. Remove the default fallback torus geometry so it doesn't render
+            // underneath/alongside the imported model
+            objectNode.geometry = nil
+
+            let wrapperNode = SCNNode()
+            for child in scene.rootNode.childNodes {
+                wrapperNode.addChildNode(child)
+            }
+            objectNode.addChildNode(wrapperNode)
+            
+            // Compute bounding box
+            var minVec = SCNVector3(Float.greatestFiniteMagnitude, Float.greatestFiniteMagnitude, Float.greatestFiniteMagnitude)
+            var maxVec = SCNVector3(-Float.greatestFiniteMagnitude, -Float.greatestFiniteMagnitude, -Float.greatestFiniteMagnitude)
+            var hasValidGeometry = false
+            
+            wrapperNode.enumerateChildNodes { (node, _) in
+                let (bMin, bMax) = node.boundingBox
+                if bMin.x < bMax.x && bMin.y < bMax.y && bMin.z < bMax.z {
+                    hasValidGeometry = true
+                    minVec.x = min(minVec.x, node.convertPosition(bMin, to: wrapperNode).x)
+                    minVec.y = min(minVec.y, node.convertPosition(bMin, to: wrapperNode).y)
+                    minVec.z = min(minVec.z, node.convertPosition(bMin, to: wrapperNode).z)
+                    maxVec.x = max(maxVec.x, node.convertPosition(bMax, to: wrapperNode).x)
+                    maxVec.y = max(maxVec.y, node.convertPosition(bMax, to: wrapperNode).y)
+                    maxVec.z = max(maxVec.z, node.convertPosition(bMax, to: wrapperNode).z)
+                }
+            }
+            
+            if hasValidGeometry {
+                let size = SCNVector3(maxVec.x - minVec.x, maxVec.y - minVec.y, maxVec.z - minVec.z)
+                let maxDimension = max(size.x, max(size.y, size.z))
+                
+                // Set scale and center pivot
+                let scaleFactor = maxDimension > 0 ? Float(1.8 / Double(maxDimension)) : 1.0
+                wrapperNode.scale = SCNVector3(scaleFactor, scaleFactor, scaleFactor)
+                
+                wrapperNode.pivot = SCNMatrix4MakeTranslation(
+                    minVec.x + size.x / 2.0,
+                    minVec.y + size.y / 2.0,
+                    minVec.z + size.z / 2.0
+                )
+                print("Successfully mounted imported model. Scaled by factor: \(scaleFactor)")
+            }
+            
+            return true
+        } catch {
+            print("Import error: \(error)")
             return false
         }
- 
-        objectNode.geometry = nil
-        objectNode.childNodes.forEach { $0.removeFromParentNode() }
- 
-        for child in imported.rootNode.childNodes {
-            objectNode.addChildNode(child)
-        }
- 
-        let (minB, maxB) = objectNode.boundingBox
-        let size = SCNVector3(maxB.x - minB.x, maxB.y - minB.y, maxB.z - minB.z)
-        let maxDimension = max(size.x, max(size.y, size.z))
-        baseScale = maxDimension > 0 ? (2.5 / maxDimension) : 1.0
- 
-        return true
     }
  
     func resetToDefaultTorus() {
@@ -92,7 +133,13 @@ final class SpatialScene {
     private func applyColor(_ color: UIColor, to node: SCNNode) {
         if let geometry = node.geometry {
             for material in geometry.materials {
+                material.lightingModel = .constant
                 material.diffuse.contents = color
+                material.normal.contents = nil
+                material.specular.contents = nil
+                material.emission.contents = nil
+                material.metalness.contents = nil
+                material.roughness.contents = nil
             }
         }
         for child in node.childNodes {

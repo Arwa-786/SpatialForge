@@ -35,9 +35,13 @@ struct ContentView: View {
  
             VStack {
                 Spacer()
-                ColorWheelView(rawR: client.rawR, rawG: client.rawG, rawB: client.rawB)
-                    .padding(.bottom, 24)
+                HStack {
+                    ColorWheelView(rawR: client.rawR, rawG: client.rawG, rawB: client.rawB)
+                    Spacer()
+                }
             }
+            .padding(.leading, 16)
+            .padding(.bottom, 20)
         }
         .onAppear { client.connect() }
         .onDisappear { client.disconnect() }

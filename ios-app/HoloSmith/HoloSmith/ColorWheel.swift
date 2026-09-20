@@ -68,7 +68,7 @@ struct ColorWheelView: View {
     let rawG: Int
     let rawB: Int
  
-    private let diameter: CGFloat = 200
+    private let diameter: CGFloat = 100
     private static var cachedWheel: UIImage?
  
     private var wheelImage: UIImage {
@@ -90,13 +90,18 @@ struct ColorWheelView: View {
                     .clipShape(Circle())
                     .overlay(Circle().stroke(Color.white.opacity(0.4), lineWidth: 1))
  
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 18, height: 18)
-                    .overlay(Circle().stroke(Color.black.opacity(0.5), lineWidth: 2))
-                    .shadow(radius: 3)
-                    .position(x: point.x, y: point.y)
-                    .animation(.spring(response: 0.25, dampingFraction: 0.7), value: point.x)
+                // Dark + light halo keeps the marker visible against any part of the
+                // wheel (including near-white, low-saturation areas near the center),
+                // and the inner dot shows the actual sensed color, not just its position.
+                ZStack {
+                    Circle().fill(Color.black.opacity(0.55)).frame(width: 16, height: 16)
+                    Circle().fill(Color.white).frame(width: 13, height: 13)
+                    Circle().fill(Color(red: Double(rawR) / 255, green: Double(rawG) / 255, blue: Double(rawB) / 255))
+                        .frame(width: 9, height: 9)
+                }
+                .shadow(radius: 2)
+                .position(x: point.x, y: point.y)
+                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: point.x)
             }
             .frame(width: diameter, height: diameter)
  

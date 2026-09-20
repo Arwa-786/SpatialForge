@@ -29,7 +29,7 @@ final class TelemetryClient: NSObject, ObservableObject, URLSessionWebSocketDele
     @Published var rawG: Int = 128
     @Published var rawB: Int = 128
     @Published var isConnected: Bool = false
- 
+    
     private var smoothR: Double = 128
     private var smoothG: Double = 128
     private var smoothB: Double = 128
