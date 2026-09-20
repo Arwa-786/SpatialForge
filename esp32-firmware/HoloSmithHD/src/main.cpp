@@ -74,8 +74,9 @@ const unsigned long PULSE_TIMEOUT_US = 25000;
 // Tune these two after watching real readings on Serial: RAW_MIN should be
 // roughly the shortest pulse you see pointed at something bright white,
 // RAW_MAX roughly the longest pulse before it's basically "nothing there."
-const int RAW_MIN = 10;
-const int RAW_MAX = 2000;
+const int RAW_MIN = 12;
+const int RAW_MAX = 450;
+const unsigned long CONTACT_MAX_PULSE = 200;
 
 unsigned long lastStreamMillis = 0;
 const unsigned long STREAM_INTERVAL_MS = 22; // ~45 Hz
@@ -164,6 +165,14 @@ uint8_t normalizeColor(unsigned long raw) {
 }
 
 void updateColor() {
+// Read Clear channel first (S2=HIGH, S3=LOW) to verify a surface is touching
+  unsigned long rawClear = readColorRaw(HIGH, LOW);
+
+  // If sensor is in open air, timed out, or no surface is pressed close: keep previous color
+  if (rawClear == 0 || rawClear > CONTACT_MAX_PULSE) {
+    return;
+  }
+
   unsigned long rawRed   = readColorRaw(LOW, LOW);
   unsigned long rawBlue  = readColorRaw(LOW, HIGH);
   unsigned long rawGreen = readColorRaw(HIGH, HIGH);
@@ -174,12 +183,6 @@ void updateColor() {
   Serial.print(rawGreen);
   Serial.print(" B:");
   Serial.println(rawBlue);
-
-  // If ALL three channels timed out, nothing is in front of the sensor —
-  // keep the last latched color instead of flashing to black.
-  if (rawRed == 0 && rawGreen == 0 && rawBlue == 0) {
-    return;
-  }
 
   latchedR = normalizeColor(rawRed);
   latchedG = normalizeColor(rawGreen);

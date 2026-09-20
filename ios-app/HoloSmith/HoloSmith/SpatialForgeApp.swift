@@ -7,6 +7,27 @@
 //  color from live wrist-cuff telemetry.
 //
 
+import SwiftUI
+ 
+@main
+struct SpatialForgeApp: App {
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+        }
+    }
+}
+ 
+
+
+
+
+
+
+
+/*
+
+
 import Combine
 import SwiftUI
 import SceneKit
@@ -215,3 +236,4 @@ struct SpatialForgeApp: App {
         }
     }
 }
+*/
